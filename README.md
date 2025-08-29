@@ -11,7 +11,8 @@
 이 프로젝트는 풀스택(Front+Back) AI 챗봇 프로젝트 학습 목적으로 제작되었습니다.
 
 
-![구현화면](https://github.com/user-attachments/assets/5efbaf8d-4794-49ce-9728-5510687b6a96)
+![구현화면](https://github.com/user-attachments/assets/bfe18443-79ce-4f31-b0dd-a4eb85c8f2b6)
+
 
 
 
