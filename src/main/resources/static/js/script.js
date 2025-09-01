@@ -44,10 +44,21 @@ async function search(btn) {
       body: JSON.stringify({ keyword }),
     });
     if (!res.ok) throw new Error();
+
+    const data = await res.json();
+
+    // Redis Key:Value 데이터를 콘솔에 출력 (F12에서 확인 가능)
+    console.group("🔥 Redis Key:Value 데이터");
+    console.log("Key: popular_keywords");
+    console.log("Value (Sorted Set):", data.redisKeys.popular_keywords);
+    console.log("Key: recent_keywords");
+    console.log("Value (List):", data.redisKeys.recent_keywords);
+    console.groupEnd();
+
     document.getElementById("searchInput").value = "";
     addUserSearchKeyword(keyword);
     await updatePopularKeywords();
-    showMessage(`"${keyword}" 검색이 완료되었습니다!`, "success");
+    showMessage(`"${keyword}" 검색이 완료되었습니다! (F12로 Redis 데이터 확인)`, "success");
   } catch {
     showMessage("검색 중 오류가 발생했습니다.", "error");
   } finally {
@@ -67,8 +78,18 @@ function addUserSearchKeyword(keyword) {
 async function updatePopularKeywords() {
   try {
     const r = await fetchWithTimeout("/api/search/popular");
-    const data = r.ok ? await r.json() : [];
-    displayKeywords("popularKeywords", Array.isArray(data) ? data : []);
+    if (r.ok) {
+      const data = await r.json();
+
+      // Redis Key:Value 정보를 콘솔에 출력
+      console.group("📊 인기 검색어 Redis 데이터");
+      console.log(`Key: ${data.redisKey}`);
+      console.log("Value:", data.redisValue);
+      console.log("총 개수:", data.totalCount);
+      console.groupEnd();
+
+      displayKeywords("popularKeywords", Array.isArray(data.keywords) ? data.keywords : []);
+    }
   } catch {}
 }
 
@@ -78,10 +99,24 @@ async function loadKeywords() {
       fetchWithTimeout("/api/search/popular"),
       fetchWithTimeout("/api/search/recent"),
     ]);
-    const pop = p.ok ? await p.json() : [];
-    const rec = r.ok ? await r.json() : [];
-    displayKeywords("popularKeywords", Array.isArray(pop) ? pop : []);
-    displayKeywords("recentKeywords", Array.isArray(rec) ? rec : []);
+
+    if (p.ok) {
+      const popularData = await p.json();
+      console.group("🔥 초기 로딩 - 인기 검색어 Redis");
+      console.log(`Key: ${popularData.redisKey}`);
+      console.log("Value:", popularData.redisValue);
+      console.groupEnd();
+      displayKeywords("popularKeywords", Array.isArray(popularData.keywords) ? popularData.keywords : []);
+    }
+
+    if (r.ok) {
+      const recentData = await r.json();
+      console.group("📝 초기 로딩 - 최근 검색어 Redis");
+      console.log(`Key: ${recentData.redisKey}`);
+      console.log("Value:", recentData.redisValue);
+      console.groupEnd();
+      displayKeywords("recentKeywords", Array.isArray(recentData.keywords) ? recentData.keywords : []);
+    }
   } catch {
     displayKeywords("popularKeywords", []);
     displayKeywords("recentKeywords", []);
@@ -117,6 +152,7 @@ function pickValue(x) {
   if (typeof x.element === "string") return x.element;
   return String(x.value ?? x.member ?? x.element ?? x);
 }
+
 function pickScore(x) {
   if (x == null) return "";
   if (typeof x.score === "number" || typeof x.score === "string")
@@ -164,13 +200,17 @@ async function checkRedisStatus(btn) {
     const r = await fetchWithTimeout("/api/search/debug/redis-status");
     if (!r.ok) throw new Error();
     const status = await r.json();
+
+    // Redis 전체 상태를 콘솔에 출력
+    console.group("🔍 Redis 전체 상태 확인");
+    console.log("Redis Data Structure:", status.redisData);
+    console.log("Raw Status:", status);
+    console.groupEnd();
+
     const el = document.getElementById("performanceComparison");
-    const pop = Array.isArray(status.popularKeywords)
-      ? status.popularKeywords
-      : [];
-    const rec = Array.isArray(status.recentKeywords)
-      ? status.recentKeywords
-      : [];
+    const pop = Array.isArray(status.popularKeywords) ? status.popularKeywords : [];
+    const rec = Array.isArray(status.recentKeywords) ? status.recentKeywords : [];
+
     const popHtml = pop
       .map(
         (it) =>
@@ -184,16 +224,16 @@ async function checkRedisStatus(btn) {
         (it, i) => `<div class="keyword-item">${i + 1}. ${pickValue(it)}</div>`
       )
       .join("");
+
     el.innerHTML = `
-      <div class="keyword-item" style="font-weight:bold;color:#007bff;">Redis 상태 정보</div>
-      <div class="keyword-item">인기 검색어 수: ${status.totalPopularCount || 0}개</div>
-      <div class="keyword-item">최근 검색어 수: ${status.totalRecentCount || 0}개</div>
-      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">인기 검색어 (점수 포함):</div>
+      <div class="keyword-item" style="font-weight:bold;color:#007bff;">Redis Key:Value 상태 정보</div>
+      <div class="keyword-item">Key: "popular_keywords" (SortedSet) - ${status.totalPopularCount || 0}개</div>
+      <div class="keyword-item">Key: "recent_keywords" (List) - ${status.totalRecentCount || 0}개</div>
+      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">popular_keywords Value (점수 포함):</div>
       ${popHtml || '<div class="keyword-item">데이터가 없습니다</div>'}
-      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">최근 검색어:</div>
-      ${recHtml || '<div class="keyword-item">데이터가 없습니다</div>'}
-    `;
-    showMessage("Redis 상태를 확인했습니다.", "info");
+      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">recent_keywords Value:</div>
+      ${recHtml || '<div class="keyword-item">데이터가 없습니다</div>'}`;
+    showMessage("Redis 상태를 확인했습니다. F12 Console에서 상세 정보 확인!", "info");
   } catch {
     showMessage("Redis 상태 확인 중 오류가 발생했습니다.", "error");
   } finally {
@@ -207,20 +247,33 @@ async function compareRedisVsDB(btn) {
     const r = await fetchWithTimeout("/api/search/compare/redis-vs-db");
     if (!r.ok) throw new Error();
     const c = await r.json();
+
+    // Redis Key:Value 데이터와 성능 비교 결과를 콘솔에 출력
+    console.group("⚡ Redis vs DB 성능 비교 + Key:Value 데이터");
+    console.log("Redis 조회 시간:", c.redisTime);
+    console.log("DB 조회 시간:", c.dbTime);
+    console.log("성능 향상:", c.performanceImprovement);
+    console.log("Redis Key:Value 데이터:", c.redisKeyValueData);
+    console.groupEnd();
+
     const el = document.getElementById("performanceComparison");
     const r1 = Array.isArray(c.redisResult) ? c.redisResult : [];
     const r2 = Array.isArray(c.dbResult) ? c.dbResult : [];
+
     el.innerHTML = `
       <div class="keyword-item" style="font-weight:bold;color:#007bff;">Redis vs DB 성능 비교 결과</div>
       <div class="keyword-item">Redis 조회 시간: ${c.redisTime}</div>
       <div class="keyword-item">DB 조회 시간: ${c.dbTime}</div>
       <div class="keyword-item" style="color:#28a745;">성능 향상: ${c.performanceImprovement}</div>
-      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">Redis 결과:</div>
+      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">Redis Key:Value에서 조회한 결과:</div>
       ${r1.map((x, i) => `<div class="keyword-item">${i + 1}. ${x}</div>`).join("")}
-      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">DB 결과:</div>
+      <div class="keyword-item" style="margin-top:10px;font-weight:bold;">DB에서 조회한 결과:</div>
       ${r2.map((x, i) => `<div class="keyword-item">${i + 1}. ${x}</div>`).join("")}
+      <div class="keyword-item" style="margin-top:15px;color:#dc3545;font-weight:bold;">
+        🔍 F12 Console에서 Redis Key:Value 원본 데이터 확인 가능!
+      </div>
     `;
-    showMessage("성능 비교가 완료되었습니다!", "success");
+    showMessage("성능 비교가 완료되었습니다! F12에서 Redis 데이터 확인!", "success");
   } catch {
     showMessage("성능 비교 중 오류가 발생했습니다.", "error");
   } finally {
@@ -228,9 +281,33 @@ async function compareRedisVsDB(btn) {
   }
 }
 
+// Redis 키 정보 조회 함수 추가
+async function showRedisKeys() {
+  try {
+    const r = await fetchWithTimeout("/api/search/debug/redis-keys");
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+
+    console.group("Redis Keys 상세 정보");
+    console.log("모든 Redis Keys:", data.keys);
+    console.groupEnd();
+
+    showMessage("Redis Keys 정보가 F12 Console에 출력되었습니다!", "info");
+  } catch {
+    showMessage("Redis Keys 조회 중 오류가 발생했습니다.", "error");
+  }
+}
+
+// 전역 함수로 등록 (콘솔에서 직접 호출 가능)
+window.showRedisKeys = showRedisKeys;
+
 (async function init() {
   await loadKeywords();
   setInterval(updatePopularKeywords, 3000);
+
+  // 초기 로딩 시 Redis 정보 안내
+  console.log("실시간 검색어 시스템 시작!");
+  console.log("F12 Console에서 showRedisKeys() 함수로 Redis 상세 정보 확인 가능");
 })();
 
 Object.assign(window, {
@@ -239,4 +316,5 @@ Object.assign(window, {
   clearCache,
   checkRedisStatus,
   compareRedisVsDB,
+  showRedisKeys,
 });
